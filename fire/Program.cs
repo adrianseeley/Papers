@@ -168,24 +168,46 @@ class Cluster
 
 class Program
 {
+    static long BinomialCoefficient(int n, int k)
+    {
+        // calculate the binomial coefficient
+        long result = 1;
+        for (int i = 1; i <= k; i++)
+        {
+            result = result * (n - i + 1) / i;
+        }
+        return result;
+    }
+
     static void ClusterSearch(int clusterCount, Dataset dataset, DifferenceTable differenceTable, out List<Cluster>? bestClusters, out float bestTotalWeightedDifferenceAverage, out int[] bestClusterSeedIterator)
     {
         // create a cluster seed iterator
-        int[] clusterSeedIterator = new int[clusterCount];
+        int[] clusterSeedIterator = new int[clusterCount * 2];
+
+        // calculate the number of possible seeds dataset.datapoints choose clusterCount * 2
+        long seedCount = BinomialCoefficient(dataset.datapoints.Count, clusterCount * 2);
 
         // record the best clusters so far
         bestClusters = null;
         bestTotalWeightedDifferenceAverage = float.MaxValue;
-        bestClusterSeedIterator = new int[clusterCount];
+        bestClusterSeedIterator = new int[clusterCount * 2];
 
         // iterate through all possible cluster seeds
+        long currentSeedIndex = 0;
         for (; ; )
         {
             // if the iterator has no duplicate values we can use it as a seed
-            if (clusterSeedIterator.Distinct().Count() == clusterCount)
+            if (clusterSeedIterator.Distinct().Count() == clusterCount * 2)
             {
+                currentSeedIndex++;
+                if (currentSeedIndex % 10000 == 0)
+                {
+                    double complete = (double)currentSeedIndex / (double)seedCount;
+                    Console.WriteLine($"Progress: {complete:P}");
+                }
+
                 // build clusters
-                List<Cluster> clusters = BuildClusters(clusterSeedIterator, dataset, differenceTable, out float totalWeightedDifferenceAverage);
+                List<Cluster> clusters = BuildClusters(clusterCount, clusterSeedIterator, dataset, differenceTable, out float totalWeightedDifferenceAverage);
 
                 // if we have no best, or this is better than the best, record it
                 if (bestClusters == null || totalWeightedDifferenceAverage < bestTotalWeightedDifferenceAverage)
@@ -197,7 +219,7 @@ class Program
             }
 
             // iterate
-            for (int i = 0; i < clusterCount; i++)
+            for (int i = 0; i < clusterSeedIterator.Length; i++)
             {
                 clusterSeedIterator[i]++;
                 if (clusterSeedIterator[i] < dataset.datapoints.Count)
@@ -209,22 +231,21 @@ class Program
         }
     }
 
-    static List<Cluster> BuildClusters(int[] clusterSeedIterator, Dataset dataset, DifferenceTable differenceTable, out float totalWeightedDifferenceAverage)
+    static List<Cluster> BuildClusters(int clusterCount, int[] clusterSeedIterator, Dataset dataset, DifferenceTable differenceTable, out float totalWeightedDifferenceAverage)
     {
         // create the clusters using the seeds
         List<Cluster> clusters = new List<Cluster>();
-        for (int i = 0; i < clusterSeedIterator.Length; i++)
+        for (int i = 0; i < clusterCount; i++)
         {
             Cluster cluster = new Cluster();
-            cluster.AddDatapoint(dataset.datapoints[clusterSeedIterator[i]], differenceTable);
+            cluster.AddDatapoint(dataset.datapoints[clusterSeedIterator[2 * i]], differenceTable);
+            cluster.AddDatapoint(dataset.datapoints[clusterSeedIterator[2 * i + 1]], differenceTable);
             clusters.Add(cluster);
         }
 
-        // add all datapoints, greedily minimizing the weighted average of all clusters
-        // this value always starts at 0 since each cluster has 1 datapoint and therefore
-        // no differences yet
-        totalWeightedDifferenceAverage = 0f;
+        // iterate through all datapoints and greedily add them to the best cluster
         int totalDatapoints = clusterSeedIterator.Length;
+        totalWeightedDifferenceAverage = float.NaN;
         for (int i = 0; i < dataset.datapoints.Count; i++)
         {
             // skip seed datapoints
@@ -233,7 +254,7 @@ class Program
                 continue;
             }
 
-            // increment total datapoints
+            // increment total datapoints in clusters
             totalDatapoints++;
 
             // find the best cluster to add it to
@@ -278,7 +299,7 @@ class Program
     static void Main(string[] args)
     {
         const string infile = "FT-163.csv";
-        const int clusterCount = 3;
+        const int clusterCount = 2;
 
         Dataset dataset = new Dataset(infile);
         DifferenceTable differenceTable = new DifferenceTable(dataset);
