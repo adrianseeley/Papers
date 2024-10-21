@@ -14,3 +14,4 @@ Adrian Seeley (OCT 2024)
 - Okay so there is little wiggle around the average even on the max side over many trials, however there also appears to be a gradual and continuous return on gains for adding extra clusters
 - So there are other measures of quality, but I think ultimately the parsimonious nature of the classifications are up to human discretion, so the next goal is to create smears of the different clusters to see what visually comes out in the clustering or if its basically random.
 - The smears look interesting, I think I need to interal sort clusters by similarity greedily to present them in the best way so I'll give that a shot.
+- Id be curious to see the odds ratio of zero high risk vs one or more high risk groups

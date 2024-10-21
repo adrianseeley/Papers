@@ -490,11 +490,18 @@ class Program
             }
             totalWeightedDifferenceAverage /= ((float)dataset.datapoints.Count);
 
-            // sort each clustlet by most to least activation
+            // sort each cluster
             for (int i = 0; i < clusters.Count; i++)
             {
-                clusters[i].datapoints = clusters[i].datapoints.OrderBy(x => x.vector.Count(y => y)).Reverse().ToList();
+                // get this cluster
+                Cluster cluster = clusters[i];
+
+                // sort datapoints by most to least activation
+                cluster.datapoints = cluster.datapoints.OrderBy(x => x.vector.Count(y => y)).Reverse().ToList();
             }
+
+            // sort all clusters by most to least highest activation
+            clusters = clusters.OrderBy(cluster => cluster.datapoints[0].vector.Count(v => v)).Reverse().ToList();
 
             // write smear via write stream
             using (StreamWriter writer = new StreamWriter($"cluster{clusterCount}smear.txt"))
