@@ -437,31 +437,77 @@ class Program
         const string infile = "FT-163.csv";
         //const int clusterCount = 2;
 
-        Dataset dataset = new Dataset(infile);
-        DifferenceTable differenceTable = new DifferenceTable(dataset);
+
 
 
         // migrate optimize
 
-        for (int clusterCount = 2; clusterCount <= 20; clusterCount++)
+        // create a writer
+        StreamWriter writer = new StreamWriter("migrate.csv", append: false);
+        writer.WriteLine("ClusterCount,TWDAMean,TWDAMin,TWDAMax");
+        for (int clusterCount = 2; clusterCount <= 50; clusterCount++)
         {
-            Console.WriteLine("Cluster Count: " + clusterCount);
-
-            // round robin build clusters
-            List<Cluster> clusters = new List<Cluster>();
-            for (int i = 0; i < clusterCount; i++)
+            const int trials = 10;
+            float totalWeightedDifferenceAverageSum = 0f;
+            float totalWeightedDifferenceAverageMin = float.MaxValue;
+            float totalWeightedDifferenceAverageMax = float.MinValue;
+            for (int trial = 0; trial < trials; trial++)
             {
-                clusters.Add(new Cluster());
-            }
-            for (int i = 0; i < dataset.datapoints.Count; i++)
-            {
-                clusters[i % clusterCount].AddDatapoint(dataset.datapoints[i], differenceTable);
+                Dataset dataset = new Dataset(infile);
+                DifferenceTable differenceTable = new DifferenceTable(dataset);
+
+                // shuffle dataset
+                Random random = new Random();
+                dataset.datapoints = dataset.datapoints.OrderBy(x => random.Next()).ToList();
+
+                Console.WriteLine("Cluster Count: " + clusterCount);
+
+                // round robin build clusters
+                List<Cluster> clusters = new List<Cluster>();
+                for (int i = 0; i < clusterCount; i++)
+                {
+                    clusters.Add(new Cluster());
+                }
+                for (int i = 0; i < dataset.datapoints.Count; i++)
+                {
+                    clusters[i % clusterCount].AddDatapoint(dataset.datapoints[i], differenceTable);
+                }
+
+                // migrate optimize
+                MigrateOptimizeClusters(clusters, differenceTable);
+
+                // compute total weighted difference average
+                float totalWeightedDifferenceAverage = 0f;
+                for (int i = 0; i < clusters.Count; i++)
+                {
+                    totalWeightedDifferenceAverage += clusters[i].weightedDifferenceAverage;
+                }
+                totalWeightedDifferenceAverage /= ((float)dataset.datapoints.Count);
+
+                // add to sum
+                totalWeightedDifferenceAverageSum += totalWeightedDifferenceAverage;
+
+                // update min
+                if (totalWeightedDifferenceAverage < totalWeightedDifferenceAverageMin)
+                {
+                    totalWeightedDifferenceAverageMin = totalWeightedDifferenceAverage;
+                }
+
+                // update max
+                if (totalWeightedDifferenceAverage > totalWeightedDifferenceAverageMax)
+                {
+                    totalWeightedDifferenceAverageMax = totalWeightedDifferenceAverage;
+                }
             }
 
-            // migrate optimize
-            MigrateOptimizeClusters(clusters, differenceTable);
+            // calculate average
+            float totalWeightedDifferenceAverageAverage = totalWeightedDifferenceAverageSum / ((float)trials);
 
+            // write to file
+            writer.WriteLine($"{clusterCount},{totalWeightedDifferenceAverageAverage},{totalWeightedDifferenceAverageMin},{totalWeightedDifferenceAverageMax}");
+            writer.Flush();
         }
+        writer.Close();
 
         /*
         // cluster search
