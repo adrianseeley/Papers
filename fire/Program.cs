@@ -164,6 +164,42 @@ class Cluster
             weightedDifferenceAverage = differenceAverage * ((float)datapoints.Count);
         }
     }
+
+    public Datapoint RemoveDatapoint(int i, DifferenceTable differenceTable)
+    {
+        // get the i'th datapoint
+        Datapoint removedDatapoint = datapoints[i];
+
+        // remove it
+        datapoints.RemoveAt(i);
+
+        // if there are no datapoints left, zero metrics and return
+        if (datapoints.Count == 0)
+        {
+            differenceCount = 0;
+            differenceSum = 0;
+            differenceAverage = 0f;
+            weightedDifferenceAverage = 0f;
+        }
+
+        // iterate through the remaining datapoints to remove the differences
+        foreach (Datapoint remainingDatapoint in datapoints)
+        {
+            // lookup the difference
+            int difference = differenceTable[removedDatapoint.index][remainingDatapoint.index];
+
+            // remove it from the metrics
+            differenceCount--;
+            differenceSum -= difference;
+        }
+
+        // update the averages
+        differenceAverage = ((float)differenceSum) / ((float)differenceCount);
+        weightedDifferenceAverage = differenceAverage * ((float)datapoints.Count);
+
+        // return the datapoint
+        return removedDatapoint;
+    }
 }
 
 class Program
