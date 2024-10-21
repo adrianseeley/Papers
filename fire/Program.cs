@@ -138,7 +138,7 @@ class Cluster
         return mockWeightedDifferenceAverage;
     }
 
-    public void AddDatapoint(Datapoint datapoint, DifferenceTable differanceTable)
+    public void AddDatapoint(Datapoint datapoint, DifferenceTable differanceTable, int i = -1)
     {
         // iterate through existing datapoints in cluster to update metrics
         foreach (Datapoint existingDatapoint in datapoints)
@@ -152,7 +152,14 @@ class Cluster
         }
 
         // add the datapoint to the cluster
-        datapoints.Add(datapoint);
+        if (i == -1)
+        {
+            datapoints.Add(datapoint);
+        }
+        else
+        {
+            datapoints.Insert(i, datapoint);
+        }
 
         // if we have more than one datapoint update averages
         if (datapoints.Count > 1)
@@ -243,7 +250,7 @@ class Program
                 }
 
                 // build clusters
-                List<Cluster> clusters = BuildClusters(clusterCount, clusterSeedIterator, dataset, differenceTable, out float totalWeightedDifferenceAverage);
+                List<Cluster> clusters = ClusterSearchBuildClusters(clusterCount, clusterSeedIterator, dataset, differenceTable, out float totalWeightedDifferenceAverage);
 
                 // if we have no best, or this is better than the best, record it
                 if (bestClusters == null || totalWeightedDifferenceAverage < bestTotalWeightedDifferenceAverage)
@@ -267,7 +274,7 @@ class Program
         }
     }
 
-    static List<Cluster> BuildClusters(int clusterCount, int[] clusterSeedIterator, Dataset dataset, DifferenceTable differenceTable, out float totalWeightedDifferenceAverage)
+    static List<Cluster> ClusterSearchBuildClusters(int clusterCount, int[] clusterSeedIterator, Dataset dataset, DifferenceTable differenceTable, out float totalWeightedDifferenceAverage)
     {
         // create the clusters using the seeds
         List<Cluster> clusters = new List<Cluster>();
@@ -331,16 +338,134 @@ class Program
         return clusters;
     }
 
+    static void MigrateOptimizeClusters(List<Cluster> clusters, DifferenceTable differenceTable)
+    {
+        // count datapoints
+        int totalDatapoints = 0;
+        for (int i = 0; i < clusters.Count; i++)
+        {
+            totalDatapoints += clusters[i].datapoints.Count;
+        }
+
+        // calculate the total weighted distance average)
+        float totalWeightedDifferenceAverage = 0f;
+        for (int i = 0; i < clusters.Count; i++)
+        {
+            totalWeightedDifferenceAverage += clusters[i].weightedDifferenceAverage;
+        }
+        totalWeightedDifferenceAverage /= ((float)totalDatapoints);
+
+        Console.WriteLine("Starting: " + totalWeightedDifferenceAverage);
+
+        // loop until improvements stop
+        bool improved = true;
+        while (improved)
+        {
+            improved = false;
+
+            // iterate for the host cluster
+            for (int hostClusterIndex = 0; hostClusterIndex < clusters.Count; hostClusterIndex++)
+            {
+                // get the host cluster
+                Cluster hostCluster = clusters[hostClusterIndex];
+
+                // if the host cluster only has 2 datapoints, it cant give one away
+                if (hostCluster.datapoints.Count == 2)
+                {
+                    continue;
+                }
+
+                // iterate for the destination clusters
+                for (int destinationClusterIndex = 0; destinationClusterIndex < clusters.Count; destinationClusterIndex++)
+                {
+                    // cant migrate a datapoint to self
+                    if (hostClusterIndex == destinationClusterIndex)
+                    {
+                        continue;
+                    }
+
+                    // get the destination cluster
+                    Cluster destinationCluster = clusters[destinationClusterIndex];
+
+                    // iterate for the host datapoint
+                    for (int hostDatapointIndex = 0; hostDatapointIndex < hostCluster.datapoints.Count; hostDatapointIndex++)
+                    {
+                        // pull the host datapoint
+                        Datapoint hostDatapoint = hostCluster.RemoveDatapoint(hostDatapointIndex, differenceTable);
+
+                        // add the host datapoint to the destination cluster
+                        destinationCluster.AddDatapoint(hostDatapoint, differenceTable);
+
+                        // calculate the new total weighted difference average
+                        float newTotalWeightedDifferenceAverage = 0f;
+                        for (int i = 0; i < clusters.Count; i++)
+                        {
+                            newTotalWeightedDifferenceAverage += clusters[i].weightedDifferenceAverage;
+                        }
+                        newTotalWeightedDifferenceAverage /= ((float)totalDatapoints);
+
+                        // if this migration is an improvement, keep it and continue
+                        if (newTotalWeightedDifferenceAverage < totalWeightedDifferenceAverage)
+                        {
+                            totalWeightedDifferenceAverage = newTotalWeightedDifferenceAverage;
+                            improved = true;
+                            hostDatapointIndex--; // jog back to cover removed datapoint
+                            continue;
+                        }
+
+                        // reaching here implies the migration was not an improvement, so we revert it
+
+                        // pull the datapoint from the end of the destination
+                        Datapoint revertedDatapoint = destinationCluster.RemoveDatapoint(destinationCluster.datapoints.Count - 1, differenceTable);
+
+                        // add it back in place to the host
+                        hostCluster.AddDatapoint(revertedDatapoint, differenceTable, hostDatapointIndex);
+
+                        // continue to next
+                        continue;
+                    }
+                }
+            }
+        }
+
+        Console.WriteLine("Ending: " + totalWeightedDifferenceAverage);
+    }
+
 
     static void Main(string[] args)
     {
         const string infile = "FT-163.csv";
-        const int clusterCount = 2;
+        //const int clusterCount = 2;
 
         Dataset dataset = new Dataset(infile);
         DifferenceTable differenceTable = new DifferenceTable(dataset);
-        ClusterSearch(clusterCount, dataset, differenceTable, out List<Cluster>? bestClusters, out float bestTotalWeightedDifferenceAverage, out int[] bestClusterSeedIterator);
 
+
+        // migrate optimize
+
+        for (int clusterCount = 2; clusterCount <= 20; clusterCount++)
+        {
+            Console.WriteLine("Cluster Count: " + clusterCount);
+
+            // round robin build clusters
+            List<Cluster> clusters = new List<Cluster>();
+            for (int i = 0; i < clusterCount; i++)
+            {
+                clusters.Add(new Cluster());
+            }
+            for (int i = 0; i < dataset.datapoints.Count; i++)
+            {
+                clusters[i % clusterCount].AddDatapoint(dataset.datapoints[i], differenceTable);
+            }
+
+            // migrate optimize
+            MigrateOptimizeClusters(clusters, differenceTable);
+
+        }
+
+        /*
+        // cluster search
+        ClusterSearch(clusterCount, dataset, differenceTable, out List<Cluster>? bestClusters, out float bestTotalWeightedDifferenceAverage, out int[] bestClusterSeedIterator);
         if (bestClusters == null)
         {
             throw new Exception("No best clusters found");
@@ -351,5 +476,6 @@ class Program
             Cluster cluster = bestClusters[i];
             Console.WriteLine($"Cluster: {i}, Count: {cluster.datapoints.Count}, DA: {cluster.differenceAverage}");
         }
+        */
     }
 }
