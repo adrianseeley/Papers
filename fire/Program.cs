@@ -90,11 +90,20 @@ class Datapoint
 {
     public int index;
     public bool[] vector;
+    public HashSet<int> featureSet;
 
     public Datapoint(int index, bool[] vector)
     {
         this.index = index;
         this.vector = vector;
+        this.featureSet = new HashSet<int>();
+        for (int i = 0; i < vector.Length; i++)
+        {
+            if (vector[i])
+            {
+                featureSet.Add(i);
+            }
+        }
     }
 
     public string Smear()
@@ -103,7 +112,7 @@ class Datapoint
         sb.Append('[');
         for (int i = 0; i < vector.Length; i++)
         {
-            sb.Append(vector[i] ? "█" : " ");
+            sb.Append(vector[i] ? "▓" : "░");
         }
         sb.Append(']');
         return sb.ToString();
@@ -493,8 +502,10 @@ class Program
         //const int clusterCount = 2;
 
 
-        // create a trajectory tgf stream
-        using (StreamWriter writer = new StreamWriter("trajectory.tgf"))
+        // create trajectory tgf streams
+        using (StreamWriter forward = new StreamWriter("trajectory-forward.tgf"))
+        using (StreamWriter backward = new StreamWriter("trajectory-backward.tgf"))
+        using (StreamWriter both = new StreamWriter("trajectory-both.tgf"))
         {
             Dataset dataset = new Dataset(infile);
             DifferenceTable differenceTable = new DifferenceTable(dataset);
@@ -502,11 +513,15 @@ class Program
             // write nodes
             for (int i = 0; i < dataset.datapoints.Count; i++)
             {
-                writer.WriteLine($"{i} i: {dataset.datapoints[i].index} a: {dataset.datapoints[i].vector.Count(x => x)} s: {dataset.datapoints[i].Smear()}");
+                forward.WriteLine($"{i} s: {dataset.datapoints[i].Smear()} i: {dataset.datapoints[i].index} a: {dataset.datapoints[i].vector.Count(x => x)} ");
+                backward.WriteLine($"{i} s: {dataset.datapoints[i].Smear()} i: {dataset.datapoints[i].index} a: {dataset.datapoints[i].vector.Count(x => x)} ");
+                both.WriteLine($"{i} s: {dataset.datapoints[i].Smear()} i: {dataset.datapoints[i].index} a: {dataset.datapoints[i].vector.Count(x => x)} ");
             }
 
             // write divider
-            writer.WriteLine("#");
+            forward.WriteLine("#");
+            backward.WriteLine("#");
+            both.WriteLine("#");
 
             // write edges
             for (int i = 0; i < dataset.datapoints.Count; i++)
@@ -516,18 +531,29 @@ class Program
                 // get activation count of this datapoint
                 int activationCount = datapoint.vector.Count(x => x);
 
-                // find the closest datapoint with more activations
+                // find datapoints with more activations
                 List<Datapoint> datapointsWithMoreActivations = dataset.datapoints.Where(x => x.vector.Count(y => y) > activationCount).ToList();
-                if (datapointsWithMoreActivations.Count == 0)
+                if (datapointsWithMoreActivations.Count > 0)
                 {
-                    continue;
+                    // find the closest
+                    Datapoint closest = datapointsWithMoreActivations.OrderBy(x => differenceTable[datapoint.index][x.index]).First();
+
+                    // make an edge from this to next most activated
+                    forward.WriteLine($"{datapoint.index} {closest.index}");
+                    both.WriteLine($"{datapoint.index} {closest.index}");
                 }
 
-                // find the closest
-                Datapoint closest = datapointsWithMoreActivations.OrderBy(x => differenceTable[datapoint.index][x.index]).First();
+                // find datapoints with less activations
+                List<Datapoint> datapointsWithLessActivations = dataset.datapoints.Where(x => x.vector.Count(y => y) < activationCount).ToList();
+                if (datapointsWithLessActivations.Count > 0)
+                {
+                    // find the closest
+                    Datapoint closest = datapointsWithLessActivations.OrderBy(x => differenceTable[datapoint.index][x.index]).First();
 
-                // make an edge
-                writer.WriteLine($"{datapoint.index} {closest.index}");
+                    // make an edge from the lesser activated to this
+                    backward.WriteLine($"{closest.index} {datapoint.index}");
+                    both.WriteLine($"{closest.index} {datapoint.index}");
+                }
             }
         }
 
