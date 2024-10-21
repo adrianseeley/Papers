@@ -14,4 +14,6 @@ Adrian Seeley (OCT 2024)
 - Okay so there is little wiggle around the average even on the max side over many trials, however there also appears to be a gradual and continuous return on gains for adding extra clusters
 - So there are other measures of quality, but I think ultimately the parsimonious nature of the classifications are up to human discretion, so the next goal is to create smears of the different clusters to see what visually comes out in the clustering or if its basically random.
 - The smears look interesting, I think I need to interal sort clusters by similarity greedily to present them in the best way so I'll give that a shot.
-- Id be curious to see the odds ratio of zero high risk vs one or more high risk groups
+- Id be curious to see the odds ratio of zero high risk vs one or more high risk groups.
+- Looking at the microcluster hori-smears you can almost see the progressions that are going on, I would be curious if there is some way of trajectorizing those. What if every datapoint, pointed to the closest datapoint with the same or more activations.
+- Oh thats fascinating, when we make edges from this node to the closest node with MORE activations, a very clear trajectory emerges, however closest with more does not always provide a prior node, yet many nodes appear to have a prior, going to also add edges to priors.

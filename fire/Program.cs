@@ -42,6 +42,47 @@ class Dataset
             // add parsed datapoint to list
             datapoints.Add(new Datapoint(index, vector));
         }
+
+        // count the activations of each feature
+        List<int> activations = new List<int>();
+        for (int i = 0; i < features.Length; i++)
+        {
+            int activation = 0;
+            for (int j = 0; j < datapoints.Count; j++)
+            {
+                if (datapoints[j].vector[i])
+                {
+                    activation++;
+                }
+            }
+            activations.Add(activation);
+        }
+
+        // copy features into a list sorted by activations
+        List<string> sortedFeatures = new List<string>();
+        for (int i = 0; i < features.Length; i++)
+        {
+            int maxActivation = activations.Max();
+            int maxIndex = activations.IndexOf(maxActivation);
+            sortedFeatures.Add(features[maxIndex]);
+            activations[maxIndex] = -1;
+        }
+
+        // create a new set of datapoints with sorted features
+        List<Datapoint> sortedDatapoints = new List<Datapoint>();
+        for (int i = 0; i < datapoints.Count; i++)
+        {
+            bool[] sortedVector = new bool[features.Length];
+            for (int j = 0; j < features.Length; j++)
+            {
+                sortedVector[j] = datapoints[i].vector[Array.IndexOf(features, sortedFeatures[j])];
+            }
+            sortedDatapoints.Add(new Datapoint(datapoints[i].index, sortedVector));
+        }
+
+        // overwrite the original features and datapoints
+        features = sortedFeatures.ToArray();
+        datapoints = sortedDatapoints;
     }
 }
 
@@ -452,10 +493,47 @@ class Program
         //const int clusterCount = 2;
 
 
+        // create a trajectory tgf stream
+        using (StreamWriter writer = new StreamWriter("trajectory.tgf"))
+        {
+            Dataset dataset = new Dataset(infile);
+            DifferenceTable differenceTable = new DifferenceTable(dataset);
 
+            // write nodes
+            for (int i = 0; i < dataset.datapoints.Count; i++)
+            {
+                writer.WriteLine($"{i} i: {dataset.datapoints[i].index} a: {dataset.datapoints[i].vector.Count(x => x)} s: {dataset.datapoints[i].Smear()}");
+            }
+
+            // write divider
+            writer.WriteLine("#");
+
+            // write edges
+            for (int i = 0; i < dataset.datapoints.Count; i++)
+            {
+                Datapoint datapoint = dataset.datapoints[i];
+
+                // get activation count of this datapoint
+                int activationCount = datapoint.vector.Count(x => x);
+
+                // find the closest datapoint with more activations
+                List<Datapoint> datapointsWithMoreActivations = dataset.datapoints.Where(x => x.vector.Count(y => y) > activationCount).ToList();
+                if (datapointsWithMoreActivations.Count == 0)
+                {
+                    continue;
+                }
+
+                // find the closest
+                Datapoint closest = datapointsWithMoreActivations.OrderBy(x => differenceTable[datapoint.index][x.index]).First();
+
+                // make an edge
+                writer.WriteLine($"{datapoint.index} {closest.index}");
+            }
+        }
+
+        return;
 
         // migrate optimize
-
         // create a writer
         for (int clusterCount = 2; clusterCount <= 50; clusterCount++)
         {
@@ -504,7 +582,7 @@ class Program
             clusters = clusters.OrderBy(cluster => cluster.datapoints[0].vector.Count(v => v)).Reverse().ToList();
 
             // write smear via write stream
-            using (StreamWriter writer = new StreamWriter($"cluster{clusterCount}smear.txt"))
+            using (StreamWriter writer = new StreamWriter($"cluster{clusterCount}-verti-smear.txt"))
             {
                 writer.WriteLine($"Cluster Count: {clusterCount}");
                 writer.WriteLine($"Total Weighted Difference Average: {totalWeightedDifferenceAverage}");
@@ -514,6 +592,38 @@ class Program
                     foreach (Datapoint datapoint in clusters[i].datapoints)
                     {
                         writer.WriteLine(datapoint.Smear());
+                    }
+                }
+            }
+
+            // write a horizontal smear
+            int longestHeader = dataset.features.Max(x => x.Length);
+            using (StreamWriter writer = new StreamWriter($"cluster{clusterCount}-hori-smear.txt"))
+            {
+                for (int featureIndex = 0; featureIndex < dataset.features.Length; featureIndex++)
+                {
+                    // write header with padding
+                    writer.Write(dataset.features[featureIndex].PadLeft(longestHeader) + " | ");
+                    // iterate through cluster
+                    for (int clusterIndex = 0; clusterIndex < clusters.Count; clusterIndex++)
+                    {
+                        Cluster cluster = clusters[clusterIndex];
+                        // .. datapoints
+                        for (int datapointIndex = 0; datapointIndex < cluster.datapoints.Count; datapointIndex++)
+                        {
+                            writer.Write(cluster.datapoints[datapointIndex].vector[featureIndex] ? "█" : " ");
+                        }
+
+                        if (clusterIndex != clusters.Count - 1)
+                        {
+                            // write cluster separator
+                            writer.Write(" | ");
+                        }
+                        else
+                        {
+                            // next line
+                            writer.WriteLine();
+                        }
                     }
                 }
             }
