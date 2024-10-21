@@ -13,3 +13,4 @@ Adrian Seeley (OCT 2024)
 - There does seem to be local minima between cluster migrations that are effectively inescapable in this setup, but I suspect a shuffle and average of the final WAD will reveal a sort of difficulty in improving beyond a certain point, I'll try that next.
 - Okay so there is little wiggle around the average even on the max side over many trials, however there also appears to be a gradual and continuous return on gains for adding extra clusters
 - So there are other measures of quality, but I think ultimately the parsimonious nature of the classifications are up to human discretion, so the next goal is to create smears of the different clusters to see what visually comes out in the clustering or if its basically random.
+- The smears look interesting, I think I need to interal sort clusters by similarity greedily to present them in the best way so I'll give that a shot.
