@@ -1,3 +1,6 @@
 # Exploring Latent Classifications in Self-Reported Fire-Setting Behaviors
 
 Adrian Seeley (OCT 2024)
+
+- When we create a cluster seed, we are choosing 1 datapoint to serve as the anchor point for that cluster, however a problem occurs when we attempt to add the second point. For example lets say we are creating three clusters, and we have a seed point in each one. The average distance between points for all clusters is currently zero. When deciding where to place the first point, we are aiming to minimize the total increase in average distances between points in clusters. This first addition will cause one of the clusters to enter a non-zero average distance state. Then when we go to add a second point does a bias get created to maintain a zero average distance state? 
+- Okay, this is proven with experimentation that they all cling to a single cluster in a biased way. This is a little unfortunate since to use this method without introducing a penalty component we actually need to seed each cluster with 2 datapoints to lay the basis for an average distance between points. This means that even with 2 cluster we need 4 seed datapoints, which means there are N choose K*2 seeds instead of N choose K. Thats exceedinly punitive as we increase the K value, but still tractable, lets implement and confirm the bias removal.
