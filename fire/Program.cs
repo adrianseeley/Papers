@@ -1,6 +1,4 @@
-﻿using System.Text;
-
-class Dataset
+﻿class Dataset
 {
     public string[] features;
     public List<Datapoint> datapoints;
@@ -112,18 +110,20 @@ class Datapoint
 class Cluster
 {
     public List<Datapoint> datapoints;
+    public List<int> activationCounts;
     public List<float> activationProbabilities;
 
     public Cluster()
     {
         datapoints = new List<Datapoint>();
+        activationCounts = new List<int>();
         activationProbabilities = new List<float>();
     }
 
-    public void CalculateActivationProbabilities()
+    public void CalculateMetrics()
     {
         // count the activations of each feature
-        List<int> activations = new List<int>();
+        activationCounts.Clear();
         for (int i = 0; i < datapoints[0].vector.Length; i++)
         {
             int activation = 0;
@@ -134,228 +134,130 @@ class Cluster
                     activation++;
                 }
             }
-            activations.Add(activation);
+            activationCounts.Add(activation);
         }
 
         // calculate the probabilities
         activationProbabilities.Clear();
-        for (int i = 0; i < activations.Count; i++)
+        for (int i = 0; i < activationCounts.Count; i++)
         {
-            activationProbabilities.Add(((float)activations[i]) / ((float)datapoints.Count));
+            activationProbabilities.Add(((float)activationCounts[i]) / ((float)datapoints.Count));
         }
     }
 
-    public static float Fitness(List<Cluster> clusters)
+    public List<float> CalculateProbabilityDeltas(Cluster other)
     {
-        // the goal is to maximize the euclidean distance between activation probabilities across clusters
-        float fitness = 0.0f;
-        for (int i = 0; i < clusters.Count; i++)
+        List<float> probabilityDeltas = new List<float>();
+        for (int i = 0; i < activationProbabilities.Count; i++)
         {
-            Cluster clusterA = clusters[i];
-            for (int j = i + 1; j < clusters.Count; j++)
-            {
-                Cluster clusterB = clusters[j];
-                for (int k = 0; k < clusterA.activationProbabilities.Count; k++)
-                {
-                    fitness += (float)Math.Pow(clusterA.activationProbabilities[k] - clusterB.activationProbabilities[k], 2);
-                }
-            }
+            probabilityDeltas.Add(other.activationProbabilities[i] - activationProbabilities[i]);
         }
-        fitness = (float)Math.Sqrt(fitness);
-        return fitness;
+        return probabilityDeltas;
     }
 
-    public static List<Cluster> ByMigration(Dataset dataset, int clusterCount, int minClusterSize)
+    public List<float> CalculateOddsRatios(Cluster other)
     {
-        // shuffle dataset
-        Random random = new Random();
-        List<Datapoint> shuffledDatapoints = dataset.datapoints.OrderBy(x => random.Next()).ToList();
-
-        // create clusters
-        List<Cluster> clusters = new List<Cluster>();
-        for (int i = 0; i < clusterCount; i++)
+        List<float> oddsRatios = new List<float>();
+        for (int i = 0; i < activationProbabilities.Count; i++)
         {
-            clusters.Add(new Cluster());
+            oddsRatios.Add(other.activationProbabilities[i] / activationProbabilities[i]);
         }
-
-        // add datapoints round robin style
-        for (int i = 0; i < shuffledDatapoints.Count; i++)
-        {
-            clusters[i % clusterCount].datapoints.Add(shuffledDatapoints[i]);
-        }
-
-        // update probabilities
-        clusters.ForEach(cluster => cluster.CalculateActivationProbabilities());
-
-        // find starting fitness
-        float bestFitness = Fitness(clusters);
-
-        // loop until improvements stop
-        bool improved = true;
-        while (improved)
-        {
-            improved = false;
-
-            // iterate for the host cluster
-            for (int hostClusterIndex = 0; hostClusterIndex < clusters.Count; hostClusterIndex++)
-            {
-                // get the host cluster
-                Cluster hostCluster = clusters[hostClusterIndex];
-
-                // if the host cluster doesnt have enough points to give away skip
-                if (hostCluster.datapoints.Count <= minClusterSize)
-                {
-                    continue;
-                }
-
-                // iterate for the destination clusters
-                for (int destinationClusterIndex = 0; destinationClusterIndex < clusters.Count; destinationClusterIndex++)
-                {
-                    // cant migrate a datapoint to self
-                    if (hostClusterIndex == destinationClusterIndex)
-                    {
-                        continue;
-                    }
-
-                    // get the destination cluster
-                    Cluster destinationCluster = clusters[destinationClusterIndex];
-
-                    // iterate for the host datapoint
-                    for (int hostDatapointIndex = 0; hostDatapointIndex < hostCluster.datapoints.Count; hostDatapointIndex++)
-                    {
-                        // if the host cluster doesnt have enough points to give away skip
-                        if (hostCluster.datapoints.Count <= minClusterSize)
-                        {
-                            break;
-                        }
-
-                        // pull the host datapoint, update probabilities
-                        Datapoint hostDatapoint = hostCluster.datapoints[hostDatapointIndex];
-                        hostCluster.datapoints.RemoveAt(hostDatapointIndex);
-                        hostCluster.CalculateActivationProbabilities();
-
-                        // add the host datapoint to the destination cluster, update probabilities
-                        destinationCluster.datapoints.Add(hostDatapoint);
-                        destinationCluster.CalculateActivationProbabilities();
-
-                        // calculate the new fitness
-                        float newFitness = Fitness(clusters);
-
-                        // if this migration is an improvement, keep it and continue
-                        if (newFitness > bestFitness)
-                        {
-                            bestFitness = newFitness;
-                            improved = true;
-                            hostDatapointIndex--; // jog back to cover removed datapoint
-                            continue;
-                        }
-
-                        // reaching here implies the migration was not an improvement, so we revert it
-
-                        // pull the datapoint from the end of the destination
-                        destinationCluster.datapoints.RemoveAt(destinationCluster.datapoints.Count - 1);
-                        destinationCluster.CalculateActivationProbabilities();
-
-                        // add it back in place to the host
-                        hostCluster.datapoints.Insert(hostDatapointIndex, hostDatapoint);
-                        hostCluster.CalculateActivationProbabilities();
-
-                        // continue to next
-                        continue;
-                    }
-                }
-            }
-        }
-
-        return clusters;
+        return oddsRatios;
     }
 
-}
-
-class Program
-{
-    static void Main(string[] args)
+    class Program
     {
-        const string infile = "FT-163.csv";
-        Dataset dataset = new Dataset(infile);
-        const int minClusterSize = 8;
-
-        using (StreamWriter writer = new StreamWriter($"cluster-smear.txt"))
+        static void Main(string[] args)
         {
-            // find longest header size
-            int longestHeader = dataset.features.Max(x => x.Length);
+            const string infile = "FT-163.csv";
+            Dataset dataset = new Dataset(infile);
+            int longestFeatureNameLength = dataset.features.Max(f => f.Length);
 
-            // iterate through cluster counts
-            for (int clusterCount = 2; clusterCount <= 10; clusterCount++)
+            Cluster all = new Cluster();
+            all.datapoints.AddRange(dataset.datapoints);
+            all.CalculateMetrics();
+
+            StreamWriter tablesWriter = new StreamWriter("tables.txt");
+
+            tablesWriter.WriteLine("All Probabilities");
+            tablesWriter.Write("P(ALL)".PadLeft(7));
+            tablesWriter.Write("N(ALL)".PadLeft(9));
+            tablesWriter.Write("  ");
+            tablesWriter.Write("Feature".PadRight(longestFeatureNameLength));
+            tablesWriter.WriteLine();
+            for (int i = 0; i < dataset.features.Length; i++)
             {
-                // create clusters
-                List<Cluster> clusters = Cluster.ByMigration(dataset, clusterCount, minClusterSize);
+                float activationProbability = all.activationProbabilities[i];
+                int activationCount = all.activationCounts[i];
+                tablesWriter.Write(activationProbability.ToString("0.000").PadLeft(7));
+                tablesWriter.Write(activationCount.ToString().PadLeft(5));
+                tablesWriter.Write("/");
+                tablesWriter.Write(all.datapoints.Count.ToString().PadLeft(3));
+                tablesWriter.Write("  ");
+                tablesWriter.Write(dataset.features[i].PadRight(longestFeatureNameLength));
+                tablesWriter.WriteLine();
+            }
+            tablesWriter.WriteLine();
 
-                // sort datapoints in each cluster by high to low activation
-                clusters.ForEach(cluster => cluster.datapoints = cluster.datapoints.OrderBy(datapoint => datapoint.activation).Reverse().ToList());
-
-                // sort clusters by high to low activation
-                clusters = clusters.OrderBy(cluster => cluster.datapoints[0].activation).Reverse().ToList();
-
-                // get activation probabilities for each cluster
-                List<List<float>> activationProbabilities = new List<List<float>>();
-                for (int i = 0; i < clusters.Count; i++)
+            for (int featureIndex = 0; featureIndex < dataset.features.Length; featureIndex++)
+            {
+                Cluster noGroup = new Cluster();
+                Cluster yesGroup = new Cluster();
+                foreach (Datapoint datapoint in dataset.datapoints)
                 {
-                    activationProbabilities.Add(clusters[i].activationProbabilities);
-                }
-
-                // calcualte fitness
-                float fitness = Cluster.Fitness(clusters);
-
-                // title smear
-                writer.WriteLine($"Cluster Count: {clusterCount} | Fitness: {fitness}");
-
-                // write a horizontal smear of the clusters
-                for (int featureIndex = 0; featureIndex < dataset.features.Length; featureIndex++)
-                {
-                    // write header with padding
-                    writer.Write(dataset.features[featureIndex].PadLeft(longestHeader) + " | ");
-
-                    // iterate through cluster
-                    for (int clusterIndex = 0; clusterIndex < clusters.Count; clusterIndex++)
+                    if (datapoint.vector[featureIndex])
                     {
-                        Cluster cluster = clusters[clusterIndex];
-
-                        // iterate through datapoints
-                        for (int datapointIndex = 0; datapointIndex < cluster.datapoints.Count; datapointIndex++)
-                        {
-                            writer.Write(cluster.datapoints[datapointIndex].vector[featureIndex] ? "█" : " ");
-                        }
-
-                        // separator or line ender
-                        if (clusterIndex != clusters.Count - 1)
-                        {
-                            // write cluster separator
-                            writer.Write(" | ");
-                        }
-                        else
-                        {
-                            // write end of cluster
-                            writer.Write(" | ");
-
-                            // write activation probabilities
-                            for (int i = 0; i < activationProbabilities.Count; i++)
-                            {
-                                writer.Write(activationProbabilities[i][featureIndex].ToString("0.00") + " | ");
-                            }
-
-                            // rewrite the feature name
-                            writer.Write(dataset.features[featureIndex]);
-
-                            // next line
-                            writer.WriteLine();
-                        }
+                        yesGroup.datapoints.Add(datapoint);
+                    }
+                    else
+                    {
+                        noGroup.datapoints.Add(datapoint);
                     }
                 }
+                noGroup.CalculateMetrics();
+                yesGroup.CalculateMetrics();
+                List<float> probabilityDeltas = noGroup.CalculateProbabilityDeltas(yesGroup);
+                List<float> oddsRatios = noGroup.CalculateOddsRatios(yesGroup);
 
-                // add a padding line
-                writer.WriteLine();
+                tablesWriter.WriteLine($"Feature: {dataset.features[featureIndex]}");
+                tablesWriter.Write("P(NO)".PadLeft(7));
+                tablesWriter.Write("P(YES)".PadLeft(7));
+                tablesWriter.Write("PΔ".PadLeft(7));
+                tablesWriter.Write("OR".PadLeft(7));
+                tablesWriter.Write("N(NO)".PadLeft(8));
+                tablesWriter.Write("N(YES)".PadLeft(9));
+                tablesWriter.Write("  ");
+                tablesWriter.Write("Feature".PadRight(longestFeatureNameLength));
+                tablesWriter.WriteLine();
+                for (int otherFeatureIndex = 0; otherFeatureIndex < dataset.features.Length; otherFeatureIndex++)
+                {
+                    float noGroupActivationProbability = noGroup.activationProbabilities[otherFeatureIndex];
+                    float yesGroupActivationProbability = yesGroup.activationProbabilities[otherFeatureIndex];
+                    float probabilityDelta = probabilityDeltas[otherFeatureIndex];
+                    float oddsRatio = oddsRatios[otherFeatureIndex];
+                    int noGroupActivationCount = noGroup.activationCounts[otherFeatureIndex];
+                    int noGroupCount = noGroup.datapoints.Count;
+                    int yesGroupActivationCount = yesGroup.activationCounts[otherFeatureIndex];
+                    int yesGroupCount = yesGroup.datapoints.Count;
+                    tablesWriter.Write(noGroupActivationProbability.ToString("0.000").PadLeft(7));
+                    tablesWriter.Write(yesGroupActivationProbability.ToString("0.000").PadLeft(7));
+                    tablesWriter.Write(probabilityDelta.ToString("0.000").PadLeft(7));
+                    tablesWriter.Write(oddsRatio.ToString("0.000").PadLeft(7));
+                    tablesWriter.Write(noGroupActivationCount.ToString().PadLeft(4));
+                    tablesWriter.Write("/");
+                    tablesWriter.Write(noGroupCount.ToString().PadLeft(3));
+                    tablesWriter.Write(yesGroupActivationCount.ToString().PadLeft(5));
+                    tablesWriter.Write("/");
+                    tablesWriter.Write(yesGroupCount.ToString().PadLeft(3));
+                    tablesWriter.Write("  ");
+                    tablesWriter.Write(dataset.features[otherFeatureIndex].PadRight(longestFeatureNameLength));
+                    tablesWriter.WriteLine();
+                }
+                tablesWriter.WriteLine();
             }
+
+            tablesWriter.Close();
+            tablesWriter.Dispose();
         }
     }
 }
