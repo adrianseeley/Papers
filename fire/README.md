@@ -19,3 +19,8 @@ Adrian Seeley (OCT 2024)
 - Oh thats fascinating, when we make edges from this node to the closest node with MORE activations, a very clear trajectory emerges, however closest with more does not always provide a prior node, yet many nodes appear to have a prior, going to also add edges to priors.
 - Both looking only backwards and only forwards provides some interesting rotoscoping view of whats going on, and combined its a bit too much, but very interesting.
 - Since these are milestones, it might interesting to do a similar graph, but with the restriction that we are more activated or less activated but with perfect congruency. Ie if a node has ABC active ABDE isnt a more candidate since ABC is not a subset of it.
+- I prefer this proper subset superset situation, but jaccard index might be a less critical metric. But I think the larger issue is that in order to saturate these pathways properly you need like millions of datapoints. It's just not feasible with this many features and this many datapoints.
+- Okay going to pull out the trajectory analysis today, too much data frequency is required, and for this study at least that is intractable.
+- Also dropping the cluster search, its heavily exhaustive and a simple migrate is very effective on this type of data.
+- The more fire is a part of your life, the higher the chance you use it innappropriately.
+- I think looking at activation probabilities in clusters might be a better metric for creating distance between clusters.
