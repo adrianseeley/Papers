@@ -24,3 +24,4 @@ Adrian Seeley (OCT 2024)
 - Also dropping the cluster search, its heavily exhaustive and a simple migrate is very effective on this type of data.
 - The more fire is a part of your life, the higher the chance you use it innappropriately.
 - I think looking at activation probabilities in clusters might be a better metric for creating distance between clusters.
+- Fascinating, but all findings aside this all comes down to the interprability of the data in terms of usefullness and that comes down to the question of, what are the risk factors for dangerous fire activity, and what are the protective factors against it - at least in terms of milestones.

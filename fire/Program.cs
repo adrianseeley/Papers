@@ -107,8 +107,20 @@ class Datapoint
         }
         this.activation = featureSet.Count;
     }
+}
 
-    public static List<float> GetActivationProbabilities(List<Datapoint> datapoints)
+class Cluster
+{
+    public List<Datapoint> datapoints;
+    public List<float> activationProbabilities;
+
+    public Cluster()
+    {
+        datapoints = new List<Datapoint>();
+        activationProbabilities = new List<float>();
+    }
+
+    public void CalculateActivationProbabilities()
     {
         // count the activations of each feature
         List<int> activations = new List<int>();
@@ -126,93 +138,57 @@ class Datapoint
         }
 
         // calculate the probabilities
-        List<float> probabilities = new List<float>();
+        activationProbabilities.Clear();
         for (int i = 0; i < activations.Count; i++)
         {
-            probabilities.Add(((float)activations[i]) / ((float)datapoints.Count));
-        }
-
-        return probabilities;
-    }
-}
-
-class DifferenceTable : Dictionary<int, Dictionary<int, int>>
-{
-    public DifferenceTable(Dataset dataset)
-    {
-        // iterate through all pairs of datapoints
-        for (int i = 0; i < dataset.datapoints.Count; i++)
-        {
-            for (int j = i + 1; j < dataset.datapoints.Count; j++)
-            {
-                // calculate the difference between the two datapoints
-                int difference = 0;
-                for (int k = 0; k < dataset.features.Length; k++)
-                {
-                    if (dataset.datapoints[i].vector[k] != dataset.datapoints[j].vector[k])
-                    {
-                        difference++;
-                    }
-                }
-
-                // add the difference to the table (low, high, difference)
-                if (!ContainsKey(i))
-                {
-                    Add(i, new Dictionary<int, int>());
-                }
-                this[i][j] = difference;
-
-                // add the difference to the table (high, low, difference)
-                if (!ContainsKey(j))
-                {
-                    Add(j, new Dictionary<int, int>());
-                }
-                this[j][i] = difference;
-
-                // note: we add both directions as a small lookup optimization
-            }
+            activationProbabilities.Add(((float)activations[i]) / ((float)datapoints.Count));
         }
     }
-}
 
-class Cluster
-{
-    public List<Datapoint> datapoints;
-    public int differenceCount;
-    public int differenceSum;
-    public float differenceAverage;
-    public float weightedDifferenceAverage;
-
-    public static float ComputeTotalWeightedDifferenceAverage(List<Cluster> clusters, int totalDatapoints)
+    public static float Fitness(List<Cluster> clusters)
     {
-        float totalWeightedDifferenceAverage = 0f;
+        // the goal is to maximize the euclidean distance between activation probabilities across clusters
+        float fitness = 0.0f;
         for (int i = 0; i < clusters.Count; i++)
         {
-            totalWeightedDifferenceAverage += clusters[i].weightedDifferenceAverage;
+            Cluster clusterA = clusters[i];
+            for (int j = i + 1; j < clusters.Count; j++)
+            {
+                Cluster clusterB = clusters[j];
+                for (int k = 0; k < clusterA.activationProbabilities.Count; k++)
+                {
+                    fitness += (float)Math.Pow(clusterA.activationProbabilities[k] - clusterB.activationProbabilities[k], 2);
+                }
+            }
         }
-        totalWeightedDifferenceAverage /= ((float)totalDatapoints);
-        return totalWeightedDifferenceAverage;
+        fitness = (float)Math.Sqrt(fitness);
+        return fitness;
     }
 
-    public static List<Cluster> ByMigration(Dataset dataset, DifferenceTable differenceTable, int clusterCount)
+    public static List<Cluster> ByMigration(Dataset dataset, int clusterCount, int minClusterSize)
     {
         // shuffle dataset
         Random random = new Random();
         List<Datapoint> shuffledDatapoints = dataset.datapoints.OrderBy(x => random.Next()).ToList();
 
-        // round robin build clusters
+        // create clusters
         List<Cluster> clusters = new List<Cluster>();
         for (int i = 0; i < clusterCount; i++)
         {
             clusters.Add(new Cluster());
         }
+
+        // add datapoints round robin style
         for (int i = 0; i < shuffledDatapoints.Count; i++)
         {
-            clusters[i % clusterCount].AddDatapoint(shuffledDatapoints[i], differenceTable);
+            clusters[i % clusterCount].datapoints.Add(shuffledDatapoints[i]);
         }
 
-        // calculate the total weighted distance average)
-        float totalWeightedDifferenceAverage = ComputeTotalWeightedDifferenceAverage(clusters, shuffledDatapoints.Count);
+        // update probabilities
+        clusters.ForEach(cluster => cluster.CalculateActivationProbabilities());
+
+        // find starting fitness
+        float bestFitness = Fitness(clusters);
 
         // loop until improvements stop
         bool improved = true;
@@ -226,8 +202,8 @@ class Cluster
                 // get the host cluster
                 Cluster hostCluster = clusters[hostClusterIndex];
 
-                // if the host cluster only has 2 datapoints, it cant give one away
-                if (hostCluster.datapoints.Count == 2)
+                // if the host cluster doesnt have enough points to give away skip
+                if (hostCluster.datapoints.Count <= minClusterSize)
                 {
                     continue;
                 }
@@ -247,19 +223,28 @@ class Cluster
                     // iterate for the host datapoint
                     for (int hostDatapointIndex = 0; hostDatapointIndex < hostCluster.datapoints.Count; hostDatapointIndex++)
                     {
-                        // pull the host datapoint
-                        Datapoint hostDatapoint = hostCluster.RemoveDatapoint(hostDatapointIndex, differenceTable);
+                        // if the host cluster doesnt have enough points to give away skip
+                        if (hostCluster.datapoints.Count <= minClusterSize)
+                        {
+                            break;
+                        }
 
-                        // add the host datapoint to the destination cluster
-                        destinationCluster.AddDatapoint(hostDatapoint, differenceTable);
+                        // pull the host datapoint, update probabilities
+                        Datapoint hostDatapoint = hostCluster.datapoints[hostDatapointIndex];
+                        hostCluster.datapoints.RemoveAt(hostDatapointIndex);
+                        hostCluster.CalculateActivationProbabilities();
 
-                        // calculate the new total weighted difference average
-                        float newTotalWeightedDifferenceAverage = ComputeTotalWeightedDifferenceAverage(clusters, shuffledDatapoints.Count);
+                        // add the host datapoint to the destination cluster, update probabilities
+                        destinationCluster.datapoints.Add(hostDatapoint);
+                        destinationCluster.CalculateActivationProbabilities();
+
+                        // calculate the new fitness
+                        float newFitness = Fitness(clusters);
 
                         // if this migration is an improvement, keep it and continue
-                        if (newTotalWeightedDifferenceAverage < totalWeightedDifferenceAverage)
+                        if (newFitness > bestFitness)
                         {
-                            totalWeightedDifferenceAverage = newTotalWeightedDifferenceAverage;
+                            bestFitness = newFitness;
                             improved = true;
                             hostDatapointIndex--; // jog back to cover removed datapoint
                             continue;
@@ -268,10 +253,12 @@ class Cluster
                         // reaching here implies the migration was not an improvement, so we revert it
 
                         // pull the datapoint from the end of the destination
-                        Datapoint revertedDatapoint = destinationCluster.RemoveDatapoint(destinationCluster.datapoints.Count - 1, differenceTable);
+                        destinationCluster.datapoints.RemoveAt(destinationCluster.datapoints.Count - 1);
+                        destinationCluster.CalculateActivationProbabilities();
 
                         // add it back in place to the host
-                        hostCluster.AddDatapoint(revertedDatapoint, differenceTable, hostDatapointIndex);
+                        hostCluster.datapoints.Insert(hostDatapointIndex, hostDatapoint);
+                        hostCluster.CalculateActivationProbabilities();
 
                         // continue to next
                         continue;
@@ -283,83 +270,6 @@ class Cluster
         return clusters;
     }
 
-    public Cluster()
-    {
-        datapoints = new List<Datapoint>();
-        differenceCount = 0;
-        differenceSum = 0;
-        differenceAverage = 0f;
-        weightedDifferenceAverage = 0f;
-    }
-    public void AddDatapoint(Datapoint datapoint, DifferenceTable differanceTable, int i = -1)
-    {
-        // iterate through existing datapoints in cluster to update metrics
-        foreach (Datapoint existingDatapoint in datapoints)
-        {
-            // get the difference between the new datapoint and the existing datapoint
-            int difference = differanceTable[datapoint.index][existingDatapoint.index];
-
-            // update the metrics
-            differenceCount++;
-            differenceSum += difference;
-        }
-
-        // add the datapoint to the cluster
-        if (i == -1)
-        {
-            datapoints.Add(datapoint);
-        }
-        else
-        {
-            datapoints.Insert(i, datapoint);
-        }
-
-        // if we have more than one datapoint update averages
-        if (datapoints.Count > 1)
-        {
-            // calculate the average
-            differenceAverage = ((float)differenceSum) / ((float)differenceCount);
-
-            // calculate the weighted average
-            weightedDifferenceAverage = differenceAverage * ((float)datapoints.Count);
-        }
-    }
-
-    public Datapoint RemoveDatapoint(int i, DifferenceTable differenceTable)
-    {
-        // get the i'th datapoint
-        Datapoint removedDatapoint = datapoints[i];
-
-        // remove it
-        datapoints.RemoveAt(i);
-
-        // if there are no datapoints left, zero metrics and return
-        if (datapoints.Count == 0)
-        {
-            differenceCount = 0;
-            differenceSum = 0;
-            differenceAverage = 0f;
-            weightedDifferenceAverage = 0f;
-        }
-
-        // iterate through the remaining datapoints to remove the differences
-        foreach (Datapoint remainingDatapoint in datapoints)
-        {
-            // lookup the difference
-            int difference = differenceTable[removedDatapoint.index][remainingDatapoint.index];
-
-            // remove it from the metrics
-            differenceCount--;
-            differenceSum -= difference;
-        }
-
-        // update the averages
-        differenceAverage = ((float)differenceSum) / ((float)differenceCount);
-        weightedDifferenceAverage = differenceAverage * ((float)datapoints.Count);
-
-        // return the datapoint
-        return removedDatapoint;
-    }
 }
 
 class Program
@@ -368,8 +278,7 @@ class Program
     {
         const string infile = "FT-163.csv";
         Dataset dataset = new Dataset(infile);
-        DifferenceTable differenceTable = new DifferenceTable(dataset);
-
+        const int minClusterSize = 8;
 
         using (StreamWriter writer = new StreamWriter($"cluster-smear.txt"))
         {
@@ -377,13 +286,10 @@ class Program
             int longestHeader = dataset.features.Max(x => x.Length);
 
             // iterate through cluster counts
-            for (int clusterCount = 2; clusterCount <= 50; clusterCount++)
+            for (int clusterCount = 2; clusterCount <= 10; clusterCount++)
             {
                 // create clusters
-                List<Cluster> clusters = Cluster.ByMigration(dataset, differenceTable, clusterCount);
-
-                // compute total weighted difference average
-                float totalWeightedDifferenceAverage = Cluster.ComputeTotalWeightedDifferenceAverage(clusters, dataset.datapoints.Count);
+                List<Cluster> clusters = Cluster.ByMigration(dataset, clusterCount, minClusterSize);
 
                 // sort datapoints in each cluster by high to low activation
                 clusters.ForEach(cluster => cluster.datapoints = cluster.datapoints.OrderBy(datapoint => datapoint.activation).Reverse().ToList());
@@ -395,11 +301,14 @@ class Program
                 List<List<float>> activationProbabilities = new List<List<float>>();
                 for (int i = 0; i < clusters.Count; i++)
                 {
-                    activationProbabilities.Add(Datapoint.GetActivationProbabilities(clusters[i].datapoints));
+                    activationProbabilities.Add(clusters[i].activationProbabilities);
                 }
 
+                // calcualte fitness
+                float fitness = Cluster.Fitness(clusters);
+
                 // title smear
-                writer.WriteLine($"Cluster Count: {clusterCount} | Total Weighted Difference Average: {totalWeightedDifferenceAverage}");
+                writer.WriteLine($"Cluster Count: {clusterCount} | Fitness: {fitness}");
 
                 // write a horizontal smear of the clusters
                 for (int featureIndex = 0; featureIndex < dataset.features.Length; featureIndex++)
