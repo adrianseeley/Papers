@@ -5,3 +5,4 @@ migrate.csv
 *.tgf
 statements.txt
 tables.txt
+scatter.csv
